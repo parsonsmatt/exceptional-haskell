@@ -4,7 +4,8 @@
 
 Note:
 
-We're going to talk about unchecked IO exceptions first.
+Well, typed and checked exceptions have some fairly significant problems in Haskell.
+Let's explore the unchecked exceptions system and see how it works out in practice.
 
 
 ```haskell
@@ -24,6 +25,7 @@ What if the file doesn't exist?
 What if we don't have permission to access it?
 There's all kinds of reasons why we shouldn't be able to return a `Handle` for any given `FilePath`.
 But this code doesn't seem to reflect that, at all.
+
 Technically, the IO type's contract includes any runtime exception at all -- but this is somewhat unsatisfying, as that applies to literally any value in Haskell.
 We still want to minimize the spooky action that's not tracked by the compiler.
 
@@ -70,29 +72,14 @@ Note:
 We interact with runtime exceptions in the same way as many programming languages.
 We can say try, `catch`, `finally`, and we have a `try-with-resource` thing called `bracket`
 
+`catch` will run the first argument, and take a handler for an exception of a specific type.
+If an exception is thrown, it uses the result from the exception handler instead.
+
+`finally` runs the second block whenever the first block finishes, whether that was from successful completion or from an exception.
+
 With try and catch, the Haskell runtime uses the *type* of the exception to figure out what it needs to catch.
 We must specify the type at compile-time for this to work.
 How does it know that, just from the type???
-
-
-## Dynamically Typed
-
-## Subtypes
-
-## Not tracked in the types
-
-## No stack traces
-<!-- .element: class="fragment" -->
-
-Note:
-
-Haskell's exception system feels like a prank.
-We have a purely functional, statically typed programming language that eschews subtyping in favor of type inference.
-And then we gave it an exception system that's dynamically typed, uses subtyping, and isn't tracked in the types at all!
-It's exactly like what most OOP languages have for an exception system.
-
-Well, almost exactly.
-No stack traces.
 
 
 ```haskell
@@ -135,6 +122,26 @@ This is the basic gist of how GHC's IO exceptions are implemented, in terms of t
 You guess (or have found through experience, or digging around in the source) what exceptions something throws, and you catch and handle them.
 
 
+## Dynamically Typed
+
+## Subtypes
+
+## Not tracked in the types
+
+## No stack traces
+<!-- .element: class="fragment" -->
+
+Note:
+
+Haskell's exception system feels like a prank.
+We have a purely functional, statically typed programming language that eschews subtyping in favor of type inference.
+And then we gave it an exception system that's dynamically typed, uses subtyping, and isn't tracked in the types at all!
+It's exactly like what most OOP languages have for an exception system.
+
+Well, almost exactly.
+No stack traces.
+
+
 # Best Practices
 
 # aka
@@ -150,7 +157,36 @@ And by "best practices" I mean "just my opinions"
 These are mostly informed by pain points that I've felt when debugging exceptions or catching them.
 
 
-# Comment
+# Don't
+
+Note:
+
+Don't.
+Don't throw an exception.
+Do you really need to?
+Can you use Either, or Maybe?
+Do that instead.
+Can you impose some constraints on your inputs that prevent the error case?
+Do that instead.
+Just because we can, doesn't mean we should!
+
+
+# Don't
+
+## use `error`
+
+## or strings
+
+Note:
+
+If you're going to throw an exception, don't use the error function.
+Don't use strings, or Text, or whatever.
+The only thing you can do with a string is print it to the console to show to the developer.
+You can do this with anything that has a Show instance.
+So throw meaningful errors.
+
+
+# Leave a Comment
 
 ```haskell
 -- | This function opens a file. If the file 
@@ -277,18 +313,19 @@ An `IO (Either OpenFileError a)` might throw the error via IO, or it might retur
 If you're 100% sure that you don't ever want this to be thrown in the runtime, you can use GHC's custom type error stuff to make an instance that can't ever be used.
 This helps us to narrow down *where* exceptions can come from.
 
+
 # Only One Constructor
 
 ## Bad
 
 ```haskell
 data ArithException
-  = Overflow
-  | Underflow
-  | LossOfPrecision
-  | DivideByZero
-  | Denormal
-  | RatioZeroDenominator
+    = Overflow
+    | Underflow
+    | LossOfPrecision
+    | DivideByZero
+    | Denormal
+    | RatioZeroDenominator
 ```
 
 Note:

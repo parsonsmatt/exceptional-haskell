@@ -4,7 +4,7 @@
 
 Note:
 
-On the other end of the tradeoffs, we have typed checked exceptions.
+On one end of the tradeoffs, we have typed checked exceptions.
 These are appealing, but have some interesting drawbacks.
 We're going to cover some of those drawbacks and figure out how to work around them.
 
@@ -53,11 +53,11 @@ What can we do?
 
 Note:
 
-Well, let's drill down into what we mean with code!
+I find it helpful to think of possibility spaces: what are all the possibilities that I might have available, given some constraints?
 Here, I've got a Venn diagram.
-The big blue circle is the set of all strings of ASCII symbols.
+The big blue circle is the set of all strings of ASCII symbols, or the possibility space of strings.
 This is literally any random bit of gibberish you might imagine.
-And the smaller, green circle is the set of syntactically valid programs.
+And the smaller, green circle is the possibility space of syntactically valid programs.
 It's a lot smaller.
 
 
@@ -66,8 +66,8 @@ It's a lot smaller.
 
 Note:
 
-When we zoom into that set of syntactically valid programs, we see that there are some more subsets.
-There's a set of programs that type check, and another set of programs that actually work.
+When we zoom into that space of syntactically valid programs, we see that there are some more subsets.
+There's a possibility space of programs that type check, and another space of programs that actually work.
 But, wait, let's zoom in on those a bit...
 
 
@@ -77,7 +77,9 @@ But, wait, let's zoom in on those a bit...
 Note:
 
 OK, so the set's aren't totally overlapping.
-A type system is going to rule out some programs that really do work.
+The space of programs that don't work is vastly huge -- it's almost all of them.
+A good type system rules out as many invalid programs as possible, while permitting as many valid programs as possible.
+There are other concerns, of course, so we end up trading some working programs for things like type inference, usability, etc.
 We generally accept that this is an OK trade off, because it forbids vastly more programs that don't work.
 
 
@@ -192,14 +194,16 @@ Note:
 
 We can use the ExceptT functions to handle the specific exception.
 But we havne't "really" handled it, according to the types -- there's nothing in the types that say that this isn't still a problem!
+The error channel still contains Can'tFindThing, even though we've caught and handled it.
 
 
-# Finer Errors
+# Refined Errors
 
 Note:
 
-Let's use a bit of the advice I mentioned earlier: single constructor for error types.
-Here's our new error type:
+Let's refine our error types.
+Instead of having a monolithic error type for the entire application, let's have a whole bunch of exception types.
+Then our functions can throw only the error type they actually throw!
 
 
 ```haskell
@@ -220,10 +224,11 @@ tooMuchMoney
 
 Note:
 
-Nice! 
+Here's our new error type.
 These are a lot simpler and we can be much more precise about the error conditions involved.
+`findThing`'s error channel only includes a 
 Unfortunately, there's a down side...
-We can't easily compose these two functions.
+We can't compose these two functions.
 
 
 ```haskell
@@ -249,26 +254,31 @@ This is due to the way Monad is implemented in Haskell.
 
 
 ```haskell
-(>>=)
-    :: m       a
-    -> (a -> m b)
-    -> m       b
+findThing 
+    :: ThingId 
+    -> ExceptT Can'tFindThing IO Thing
+    
+tooMuchMoney 
+    :: AccountId 
+    -> ExceptT TooMuchMoney IO Account
 
--- specialized,
-
-(>>=) 
-    :: ExceptT       e m a
-    -> (a -> ExceptT e m b)
-    -> ExceptT       e m b
+typesOkay 
+    :: ThingId -> AccountId 
+    -> ExceptT (Either Can'tFindThing TooMuchMoney) IO Account
+typesOkay thingId accountId = do
+    thing   <- withExceptT Left  (findThing thingId)
+    account <- withExceptT Right (tooMuchMoney accountId)
+    pure (thing, account)
 ```
-
-`e` can't change :(
 
 Note:
 
-The error type on `ExceptT` can't change if we want to use it in do notation.
-So that's no good! 
-In order to make that work, we'd need to introduce some additional polymorphism...
+We can work around this using `Either` as an anonymous sum type.
+However, this has an unfortunate side-effect: `ExceptT` either has to be the outermost layer in the monad stack, or you have to use the mmorph package and monad morphisms with a fixed, concrete monad transformer stack.
+We also can't use the `MonadError` type class to have the benefits of `mtl`, so you're locked into explicit transformer stacks.
+For more complicated error types, the nested eithers get nasty, and you end up wanting to define a custom error type.
+But then you have a single error type for almost every function you write (along with projections), or you lose specificity.
+This isn't fun.
 
 
 # Classy
@@ -277,11 +287,9 @@ In order to make that work, we'd need to introduce some additional polymorphism.
 
 Note:
 
-A cool way to approach this is to use classy prisms.
+A cool way to approach this problem is to use classy prisms.
 If you're not familiar with lenses and optics, don't worry.
 A prism gives you two things: A means of looking into a part of a value that might not be there, and a means of constructing a value given a part.
-
-These actually work quite well for IO runtime exceptions, also!
 
 
 ```haskell
@@ -303,6 +311,9 @@ Preview gives you a chance to "see" into the value.
 Review gives you the ability to construct a value using a piece.
 This works for stuff like Either.
 
+The convention we use for prisms in Haskell is to prefix the constructor name with an underscore.
+So `_Right` is a prism into the Right side of an Either.
+
 
 ```haskell
 class AsTooMuchMoney e where
@@ -322,7 +333,7 @@ maybeTooMuchMoney = preview _TooMuchMoney
 
 Note:
 
-As far a we're concerned, this is what a classy prism looks like.
+As far as we're concerned, this is what a classy prism looks like.
 It gives us a way to "project" a `TooMuchMoney` into some polymorphic type.
 It also gives us a way to check a value that's an instance of the type class, and maybe get the `TooMuchMoney` out of it.
 
@@ -385,6 +396,31 @@ It allows us to express our errors as fine-grained as we want.
 And errors compose together just fine.
 
 
+```haskell
+findThing
+    :: ( MonadError e m, MonadIO m
+       , AsCan'tFindThing e
+       ) => ThingId -> m Thing
+
+tooMuchMoney
+    :: ( MonadError e m, MonadIO m
+       , AsTooMuchMoney e
+       ) => AccountId -> m Account
+
+combined
+    :: ( MonadError e m, MonadIO m
+       , AsTooMuchMoney e, AsCan'tFindThing e
+       ) => AccountId -> ThingId -> m ()
+```
+
+Note:
+
+We can even use mtl and type classes to abstract out the underlying monad!
+We can use flexible, generic types without worrying about specific error monads.
+Everything composes just like you'd want it to.
+This is great.
+
+
 # unfortunately
 
 # :(
@@ -441,8 +477,11 @@ then we might as well be programming against dynamically typed, unchecked except
 
 Note:
 
-ExceptT with classy prisms gives us composability and growability.
-But we can't shrink, and it's slow.
+ExceptT and concrete exceptions gives us the ability to shrink the error set, but we can't easily compose error types.
+MonadError with classy prisms gives us composability and growability.
+But we can't shrink the error type.
+
+Both of these are slow, too.
 
 
 ![](./checked-exceptions.png)
@@ -451,4 +490,3 @@ Note:
 
 There's a PureScript library called `purescript-checked-exceptions` that leverages PureScript's row polymorphism heavily to provide basically all of this.
 Unfortunately, my attempts to port this library to Haskell have all failed.
-I was hoping to debut a library to solve this today, but it might be beyond what Haskell can do.

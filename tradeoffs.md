@@ -11,9 +11,9 @@ Up to this point, I've mostly talked about Haskell's runtime exceptions.
 I'm going to use exceptions now to mean *any* kind of short-circuiting error value, along with the relevant means of catching them.
 
 
-# Ergonomics 
-# vs 
 # Safety
+# vs 
+# Ergonomics 
 
 Note:
 
@@ -29,9 +29,9 @@ The ergonomics are bad, and in the few Java codebases I've worked on, the common
 The lesson I take from this is that: if we try to give too much safety and sacrifice ergonomics, we'll end up sacrificing safety too.
 
 
-# Brevity 
-# vs 
 # Precision 
+# vs 
+# Brevity 
 
 Note: 
 
@@ -43,9 +43,9 @@ So we make the code more concise, but this reduces precision in many cases.
 We can make the code easier to write, but this makes it harder to analyze and work with.
 
 
-# Composability
-# vs 
 # Specificity 
+# vs 
+# Composability
 
 Note:
 
